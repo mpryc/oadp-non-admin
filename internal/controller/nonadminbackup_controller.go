@@ -241,6 +241,14 @@ func (r *NonAdminBackupReconciler) setStatusForDirectKubernetesAPIDeletion(ctx c
 //   - A boolean indicating whether to requeue the reconcile loop,
 //   - An error if VeleroBackup deletion or retrieval fails, for example, due to multiple VeleroBackup objects found with the same UUID label.
 func (r *NonAdminBackupReconciler) createVeleroDeleteBackupRequest(ctx context.Context, logger logr.Logger, nab *nacv1alpha1.NonAdminBackup) (bool, error) {
+	// Get the latest version of the NAB object
+	nabOriginal := nab.DeepCopy()
+
+	if err := r.Get(ctx, types.NamespacedName{Name: nabOriginal.Name, Namespace: nabOriginal.Namespace}, nab); err != nil {
+		logger.Error(err, "Failed to re-fetch NonAdminBackup")
+		return false, err
+	}
+
 	if !controllerutil.ContainsFinalizer(nab, constant.NabFinalizerName) ||
 		nab.Status.VeleroBackup == nil ||
 		nab.Status.VeleroBackup.NACUUID == constant.EmptyString {
@@ -326,6 +334,14 @@ func (r *NonAdminBackupReconciler) createVeleroDeleteBackupRequest(ctx context.C
 //   - bool: whether to requeue (always false)
 //   - error: any error encountered during deletion
 func (r *NonAdminBackupReconciler) deleteVeleroBackupAndDeleteBackupRequestObjects(ctx context.Context, logger logr.Logger, nab *nacv1alpha1.NonAdminBackup) (bool, error) {
+	// Get the latest version of the NAB object
+	nabOriginal := nab.DeepCopy()
+
+	if err := r.Get(ctx, types.NamespacedName{Name: nabOriginal.Name, Namespace: nabOriginal.Namespace}, nab); err != nil {
+		logger.Error(err, "Failed to re-fetch NonAdminBackup")
+		return false, err
+	}
+
 	if nab.Status.VeleroBackup == nil || nab.Status.VeleroBackup.NACUUID == constant.EmptyString {
 		return false, nil
 	}
@@ -386,6 +402,14 @@ func (r *NonAdminBackupReconciler) deleteVeleroBackupAndDeleteBackupRequestObjec
 //   - An error if any update operation or deletion check fails.
 func (r *NonAdminBackupReconciler) removeNabFinalizerUponVeleroBackupDeletion(ctx context.Context, logger logr.Logger, nab *nacv1alpha1.NonAdminBackup) (bool, error) {
 	// Check if DeleteBackup is set or NAB was deleted
+	// Get the latest version of the NAB object
+	nabOriginal := nab.DeepCopy()
+
+	if err := r.Get(ctx, types.NamespacedName{Name: nabOriginal.Name, Namespace: nabOriginal.Namespace}, nab); err != nil {
+		logger.Error(err, "Failed to re-fetch NonAdminBackup")
+		return false, err
+	}
+
 	if !nab.ObjectMeta.DeletionTimestamp.IsZero() {
 		if !nab.Spec.ForceDeleteBackup && nab.Status.VeleroBackup != nil && nab.Status.VeleroBackup.NACUUID != constant.EmptyString {
 			veleroBackupNACUUID := nab.Status.VeleroBackup.NACUUID
@@ -518,6 +542,14 @@ func (r *NonAdminBackupReconciler) validateSpec(ctx context.Context, logger logr
 //
 // This function generates a UUID and stores it in the VeleroBackup status field of NonAdminBackup.
 func (r *NonAdminBackupReconciler) setBackupUUIDInStatus(ctx context.Context, logger logr.Logger, nab *nacv1alpha1.NonAdminBackup) (bool, error) {
+	// Get the latest version of the NAB object
+	nabOriginal := nab.DeepCopy()
+
+	if err := r.Get(ctx, types.NamespacedName{Name: nabOriginal.Name, Namespace: nabOriginal.Namespace}, nab); err != nil {
+		logger.Error(err, "Failed to re-fetch NonAdminBackup")
+		return false, err
+	}
+
 	if nab.Status.VeleroBackup == nil || nab.Status.VeleroBackup.NACUUID == constant.EmptyString {
 		veleroBackupNACUUID := function.GenerateNacObjectUUID(nab.Namespace, nab.Name)
 		nab.Status.VeleroBackup = &nacv1alpha1.VeleroBackup{
@@ -564,6 +596,14 @@ func (r *NonAdminBackupReconciler) setFinalizerOnNonAdminBackup(ctx context.Cont
 //	logger: Logger instance for logging messages.
 //	nab: Pointer to the NonAdminBackup object.
 func (r *NonAdminBackupReconciler) createVeleroBackupAndSyncWithNonAdminBackup(ctx context.Context, logger logr.Logger, nab *nacv1alpha1.NonAdminBackup) (bool, error) {
+	// Get the latest version of the NAB object
+	nabOriginal := nab.DeepCopy()
+
+	if err := r.Get(ctx, types.NamespacedName{Name: nabOriginal.Name, Namespace: nabOriginal.Namespace}, nab); err != nil {
+		logger.Error(err, "Failed to re-fetch NonAdminBackup")
+		return false, err
+	}
+
 	if nab.Status.VeleroBackup == nil || nab.Status.VeleroBackup.NACUUID == constant.EmptyString {
 		return false, errors.New("unable to get Velero Backup UUID from NonAdminBackup Status")
 	}
