@@ -55,15 +55,13 @@ type NonAdminBackupReconciler struct {
 type reconcileStepFunction func(ctx context.Context, logger logr.Logger, nab *nacv1alpha1.NonAdminBackup) (bool, error)
 
 const (
-	phaseUpdateRequeue           = "NonAdminBackup - Requeue after Phase Update"
-	conditionUpdateRequeue       = "NonAdminBackup - Requeue after Condition Update"
-	veleroReferenceUpdateRequeue = "NonAdminBackup - Requeue after Status Update with UUID reference"
-	statusUpdateExit             = "NonAdminBackup - Exit after Status Update"
-	statusUpdateError            = "Failed to update NonAdminBackup Status"
-	findSingleVBError            = "Error encountered while retrieving VeleroBackup for NAB during the Delete operation"
-	findSingleVDBRError          = "Error encountered while retrieving DeleteBackupRequest for NAB during the Delete operation"
-	uuidString                   = "UUID"
-	nameString                   = "name"
+	veleroReferenceUpdated = "NonAdminBackup - Status Updated with UUID reference"
+	statusUpdateExit       = "NonAdminBackup - Exit after Status Update"
+	statusUpdateError      = "Failed to update NonAdminBackup Status"
+	findSingleVBError      = "Error encountered while retrieving VeleroBackup for NAB during the Delete operation"
+	findSingleVDBRError    = "Error encountered while retrieving DeleteBackupRequest for NAB during the Delete operation"
+	uuidString             = "UUID"
+	nameString             = "name"
 )
 
 // +kubebuilder:rbac:groups=nac.oadp.openshift.io,resources=nonadminbackups,verbs=get;list;watch;create;update;patch;delete
@@ -176,7 +174,8 @@ func (r *NonAdminBackupReconciler) setStatusAndConditionForDeletionAndCallDelete
 			return false, err
 		}
 		logger.V(1).Info("NonAdminBackup status marked for deletion")
-		return true, nil
+	} else {
+		logger.V(1).Info("NonAdminBackup status unchanged during deletion")
 	}
 	if nab.ObjectMeta.DeletionTimestamp.IsZero() {
 		logger.V(1).Info("Marking NonAdminBackup for deletion", nameString, nab.Name)
@@ -216,8 +215,10 @@ func (r *NonAdminBackupReconciler) setStatusForDirectKubernetesAPIDeletion(ctx c
 			logger.Error(err, statusUpdateError)
 			return false, err
 		}
-		logger.V(1).Info("NonAdminBackup status marked for deletion")
+		logger.V(1).Info("NonAdminBackup status marked for deletion during direct API deletion")
 		// This is final step in the direct API deletion path we do not want to requeue
+	} else {
+		logger.V(1).Info("NonAdminBackup status unchanged during direct API deletion")
 	}
 	return false, nil
 }
@@ -286,10 +287,10 @@ func (r *NonAdminBackupReconciler) createVeleroDeleteBackupRequest(ctx context.C
 
 		// Use CreateRetryGenerateName for retry logic in creating the delete request
 		if err := veleroclient.CreateRetryGenerateName(r.Client, ctx, deleteBackupRequest); err != nil {
-			logger.Error(err, "Failed to create delete request for VeleroBackup", "VeleroBackup", veleroBackup.Name, "NonAdminBackup", nab.Name)
+			logger.Error(err, "Failed to create delete request for VeleroBackup", "VeleroBackup name", veleroBackup.Name, "NonAdminBackup name", nab.Name)
 			return false, err
 		}
-		logger.V(1).Info("Request to delete backup submitted successfully", "VeleroBackup", veleroBackup.Name, "NonAdminBackup", nab.Name)
+		logger.V(1).Info("Request to delete backup submitted successfully", "VeleroBackup name", veleroBackup.Name, "NonAdminBackup name", nab.Name)
 		nab.Status.VeleroDeleteBackupRequest = &nacv1alpha1.VeleroDeleteBackupRequest{
 			NACUUID:   veleroBackupNACUUID,
 			Namespace: r.OADPNamespace,
@@ -306,7 +307,10 @@ func (r *NonAdminBackupReconciler) createVeleroDeleteBackupRequest(ctx context.C
 			return false, err
 		}
 		logger.V(1).Info("NonAdminBackup DeleteBackupRequest Status updated successfully")
+	} else {
+		logger.V(1).Info("NonAdminBackup DeleteBackupRequest Status unchanged")
 	}
+
 	return false, nil // Continue so initNabDeletion can initialize deletion of a NonAdminBackup object
 }
 
@@ -427,20 +431,23 @@ func (r *NonAdminBackupReconciler) removeNabFinalizerUponVeleroBackupDeletion(ct
 // It then returns boolean values indicating whether the reconciliation loop should requeue or exit
 // and error value whether the status was updated successfully.
 func (r *NonAdminBackupReconciler) initNabCreate(ctx context.Context, logger logr.Logger, nab *nacv1alpha1.NonAdminBackup) (bool, error) {
-	if nab.Status.Phase == constant.EmptyString {
-		updated := updateNonAdminPhase(&nab.Status.Phase, nacv1alpha1.NonAdminBackupPhaseNew)
-		if updated {
-			if err := r.Status().Update(ctx, nab); err != nil {
-				logger.Error(err, statusUpdateError)
-				return false, err
-			}
-
-			logger.V(1).Info(phaseUpdateRequeue)
-			return true, nil
-		}
+	// If phase is already set, nothing to do
+	if nab.Status.Phase != constant.EmptyString {
+		logger.V(1).Info("NonAdminBackup Phase already initialized", "currentPhase", nab.Status.Phase)
+		return false, nil
 	}
 
-	logger.V(1).Info("NonAdminBackup Phase already initialized")
+	// Set phase to New
+	if updated := updateNonAdminPhase(&nab.Status.Phase, nacv1alpha1.NonAdminBackupPhaseNew); updated {
+		if err := r.Status().Update(ctx, nab); err != nil {
+			logger.Error(err, statusUpdateError)
+			return false, err
+		}
+		logger.V(1).Info("NonAdminBackup Phase set to New")
+	} else {
+		logger.V(1).Info("NonAdminBackup Phase update skipped", "currentPhase", nab.Status.Phase)
+	}
+
 	return false, nil
 }
 
@@ -473,11 +480,13 @@ func (r *NonAdminBackupReconciler) validateSpec(ctx context.Context, logger logr
 				logger.Error(updateErr, statusUpdateError)
 				return false, updateErr
 			}
+			logger.V(1).Info("NonAdminBackup Phase set to BackingOff")
+			logger.V(1).Info("NonAdminBackup condition set to InvalidBackupSpec")
 		}
-
-		logger.Error(err, "NonAdminBackup Spec is not valid")
 		return false, reconcile.TerminalError(err)
 	}
+
+	logger.V(1).Info("NonAdminBackup Spec is valid")
 
 	updated := meta.SetStatusCondition(&nab.Status.Conditions,
 		metav1.Condition{
@@ -492,12 +501,10 @@ func (r *NonAdminBackupReconciler) validateSpec(ctx context.Context, logger logr
 			logger.Error(err, statusUpdateError)
 			return false, err
 		}
-
-		logger.V(1).Info(conditionUpdateRequeue)
-		return true, nil
+		logger.V(1).Info("NonAdminBackup condition set to Accepted")
+	} else {
+		logger.V(1).Info("NonAdminBackup already has Accepted condition")
 	}
-
-	logger.V(1).Info("NonAdminBackup Spec already validated")
 	return false, nil
 }
 
@@ -522,10 +529,10 @@ func (r *NonAdminBackupReconciler) setBackupUUIDInStatus(ctx context.Context, lo
 			logger.Error(err, statusUpdateError)
 			return false, err
 		}
-		logger.V(1).Info(veleroReferenceUpdateRequeue)
-		return true, nil
+		logger.V(1).Info(veleroReferenceUpdated)
+	} else {
+		logger.V(1).Info("NonAdminBackup already contains VeleroBackup UUID reference")
 	}
-	logger.V(1).Info("NonAdminBackup already contains VeleroBackup UUID reference")
 	return false, nil
 }
 
@@ -540,9 +547,9 @@ func (r *NonAdminBackupReconciler) setFinalizerOnNonAdminBackup(ctx context.Cont
 			return false, err
 		}
 		logger.V(1).Info("Finalizer added to NonAdminBackup", "finalizer", constant.NabFinalizerName)
-		return true, nil // Requeue after adding finalizer
+	} else {
+		logger.V(1).Info("Finalizer exists on the NonAdminBackup object", "finalizer", constant.NabFinalizerName)
 	}
-	logger.V(1).Info("Finalizer exists on the NonAdminBackup object", "finalizer", constant.NabFinalizerName)
 	return false, nil
 }
 
@@ -622,8 +629,10 @@ func (r *NonAdminBackupReconciler) createVeleroBackupAndSyncWithNonAdminBackup(c
 			return false, err
 		}
 		logger.V(1).Info(statusUpdateExit)
-		return false, nil
+		return false, nil // TODO: We probably can safely continue with the reconciliation here
 	}
+
+	logger.V(1).Info("NonAdminBackup status unchanged during VeleroBackup reconciliation")
 
 	// Ensure that the NonAdminBackup's NonAdminBackupStatus is in sync
 	// with the VeleroBackup. Any required updates to the NonAdminBackup
@@ -634,8 +643,9 @@ func (r *NonAdminBackupReconciler) createVeleroBackupAndSyncWithNonAdminBackup(c
 			veleroBackupLogger.Error(err, "Failed to update NonAdminBackup Status after VeleroBackup reconciliation")
 			return false, err
 		}
-
 		logger.V(1).Info("NonAdminBackup Status updated successfully")
+	} else {
+		logger.V(1).Info("NonAdminBackup Status unchanged during VeleroBackup reconciliation")
 	}
 
 	return false, nil
