@@ -456,10 +456,9 @@ func (r *NonAdminBackupReconciler) initNabCreate(ctx context.Context, logger log
 			return false, err
 		}
 		logger.V(1).Info("NonAdminBackup Phase set to New")
-	} else {
-		logger.V(1).Info("NonAdminBackup Phase update skipped", "currentPhase", nab.Status.Phase)
+		return true, nil
 	}
-
+	logger.V(1).Info("NonAdminBackup Phase update skipped", "currentPhase", nab.Status.Phase)
 	return false, nil
 }
 
@@ -514,9 +513,9 @@ func (r *NonAdminBackupReconciler) validateSpec(ctx context.Context, logger logr
 			return false, err
 		}
 		logger.V(1).Info("NonAdminBackup condition set to Accepted")
-	} else {
-		logger.V(1).Info("NonAdminBackup already has Accepted condition")
+		return true, nil
 	}
+	logger.V(1).Info("NonAdminBackup already has Accepted condition")
 	return false, nil
 }
 
@@ -550,9 +549,9 @@ func (r *NonAdminBackupReconciler) setBackupUUIDInStatus(ctx context.Context, lo
 			return false, err
 		}
 		logger.V(1).Info(veleroReferenceUpdated)
-	} else {
-		logger.V(1).Info("NonAdminBackup already contains VeleroBackup UUID reference")
+		return true, nil
 	}
+	logger.V(1).Info("NonAdminBackup already contains VeleroBackup UUID reference")
 	return false, nil
 }
 
