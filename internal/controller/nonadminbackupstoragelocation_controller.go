@@ -40,6 +40,7 @@ import (
 	"github.com/migtools/oadp-non-admin/internal/common/function"
 	"github.com/migtools/oadp-non-admin/internal/handler"
 	"github.com/migtools/oadp-non-admin/internal/predicate"
+	oadpcommon "github.com/openshift/oadp-operator/pkg/common"
 )
 
 const (
@@ -538,6 +539,12 @@ func (r *NonAdminBackupStorageLocationReconciler) createVeleroBSL(ctx context.Co
 				builder.WithLabelsMap(function.GetNonAdminLabels()),
 				builder.WithAnnotationsMap(function.GetNonAdminBackupStorageLocationAnnotations(nabsl.ObjectMeta)),
 			).Result()
+	}
+
+	err = oadpcommon.UpdateBackupStorageLocation(veleroBsl, *nabsl.Spec.BackupStorageLocationSpec)
+	if err != nil {
+		logger.Error(err, "Failed to update VeleroBackupStorageLocation spec")
+		return false, err
 	}
 
 	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, veleroBsl, func() error {
